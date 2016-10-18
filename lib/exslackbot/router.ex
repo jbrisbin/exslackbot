@@ -15,7 +15,7 @@ defmodule ExSlackBot.Router do
       %{ok: true, url: url} = resp ->
         # Parse the WebSocket URL out of the response 
         case URI.parse(url) do
-          %URI{host: host, path: path} = uri ->
+          %URI{host: host, path: path} ->
             # Connect to Slack RTM API over secure WebSocket
             socket = Socket.Web.connect! host, path: path, secure: true
 
@@ -45,6 +45,7 @@ defmodule ExSlackBot.Router do
       {:text, data} -> 
         # Decode JSON with atoms and labels, pass it to ourselves via `gen_server:cast`
         {:ok, json} = JSX.decode(data, [{:labels, :atom}])
+        # Logger.debug "message: #{inspect(json)}"
         decode(json, socket, slack_id)
       {:ping, _ } -> 
         # Respond with a `pong` to keep the connection alive
@@ -55,8 +56,8 @@ defmodule ExSlackBot.Router do
     read(socket, slack_id)
   end
 
-  defp decode(%{type: "hello"}, _, _) do
-    # Ignore
+  defp decode(%{type: "hello"}, _, slack_id) do
+    Logger.info "ExSlackBot connected as user #{slack_id}"
   end
   defp decode(%{type: "reconnect_url"}, _, _) do
     # Ignore
@@ -67,14 +68,32 @@ defmodule ExSlackBot.Router do
   defp decode(%{type: "user_typing"}, _, _) do
     # Ignore
   end
+  defp decode(%{type: "file_shared"}, _, _) do
+    # Ignore
+  end
 
   # Consider an edited message another, separate command.
   defp decode(%{type: type, subtype: "message_changed", message: msg, channel: channel}, socket, slack_id) do
     decode(%{type: type, text: msg.text, channel: channel}, socket, slack_id)
   end
 
+  defp decode(%{type: type, upload: true, file: %{preview: content, initial_comment: %{comment: text0}}, channel: channel}, socket, slack_id) do
+    send_cmd(text0, slack_id, type, channel, socket, content)
+  end
+
   # Decode the message and send to the correct `GenServer` based on the first element of the text.
   defp decode(%{type: type, text: text0, channel: channel}, socket, slack_id) do
+    send_cmd(text0, slack_id, type, channel, socket)
+  end
+
+  defp send_cmd(text0, slack_id, type, channel, socket, file \\ nil) do
+    case split_cmd_text(text0, channel, slack_id) do
+      [nil, []] -> :noop
+      [cmd | args] -> GenServer.cast(cmd, {slack_id, type, channel, socket, file, args})
+    end
+  end
+
+  defp split_cmd_text(text0, channel, slack_id) do
     text = case String.contains? text0, slack_id do
       # Handle a mention
       true -> String.replace(text0, ~r/<(.*)>/, "")
@@ -85,10 +104,8 @@ defmodule ExSlackBot.Router do
       end
     end
     case String.split(text) do
-      [cmd | args] -> 
-        Logger.debug "#{cmd} [#{type}, #{channel}] ++ [#{inspect(args)}]"
-        GenServer.cast(String.to_atom(cmd), [slack_id, type, channel, socket, args])
-      [] -> :noop
+      [cmd | args] -> [String.to_atom(cmd), args]
+      [] -> [nil, []]
     end
   end
 

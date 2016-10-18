@@ -84,7 +84,7 @@ The bot library expects a command message to be space-spearated and take the fol
 
 ## TODO
 
-* Support file sharing so you can create a snippet of JSON or YAML and have that passed to your function.
+* Reconnecting when `wss://` connection to Slack API is lost.
 * Gist integration for large `STDOUT` and `STDERR` tracebacks.
 
 ## License

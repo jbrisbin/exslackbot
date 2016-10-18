@@ -9,9 +9,6 @@ defmodule ExSlackBot do
       is_list(name_or_opts) -> name_or_opts
       true -> raise "argument must be atom (command name) or keyword list (opts)"
     end
-    mod_name = String.replace(String.downcase(to_string(__MODULE__)), ~r/slackbot|bot/, "")
-    command_name = opts[:name] || String.to_atom(String.replace(String.downcase(to_string(__MODULE__)), ~r/slackbot|bot/, ""))
-
     quote do
       require Logger
 
@@ -34,7 +31,7 @@ defmodule ExSlackBot do
         {:ok, %{}}
       end
 
-      def handle_cast([slack_id, _, channel, socket, [cmd | args]], state) do
+      def handle_cast({slack_id, _, channel, socket, file, [cmd | args]}, state) do
         fn_args = Map.new args, fn a ->
           case String.split(a, "=") do
             [flag] -> {String.to_atom(flag), true}
@@ -43,8 +40,13 @@ defmodule ExSlackBot do
             [k, v] -> {String.to_atom(k), v}
           end 
         end
+        fn_args = case file do
+          nil -> fn_args
+          f -> Map.put(fn_args, :file, f)
+        end
         reply = try do
-          :erlang.apply(__MODULE__, String.to_atom(cmd), [fn_args, state])
+          Logger.debug "apply(#{inspect(__MODULE__)}, #{inspect(cmd)}, [#{inspect(fn_args)}, #{inspect(state)}])"
+          :erlang.apply(__MODULE__, String.to_atom(List.first(cmd)), [fn_args, state])
         rescue
           err -> {:reply, %{
             color: "danger",

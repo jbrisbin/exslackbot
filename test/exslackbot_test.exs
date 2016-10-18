@@ -8,8 +8,11 @@ defmodule ExSlackBotTest do
     use ExSlackBot
 
     def hello(args \\ %{}, state) do
-      Logger.debug "hello #{inspect(args)}"
-      {:reply, "hello world", state}
+      Logger.debug "hello: #{inspect(args)}"
+      case args do
+        %{file: content} -> {:reply, %{text: "Got file: ```#{content}```"}, state}
+        _ -> {:reply, "hello world", state} 
+      end      
     end
   end
 
@@ -20,7 +23,7 @@ defmodule ExSlackBotTest do
       {:ok, %{count: 1}}
     end
 
-    def hello(args \\ [], state) do
+    def hello(args \\ %{}, state) do
       {:reply, "hello world #{state.count}", %{state | count: state.count + 1}}
     end
   end
@@ -29,7 +32,7 @@ defmodule ExSlackBotTest do
     use Application
     import Supervisor.Spec, warn: false
 
-    def start(_type, _args) do
+    def start(type \\ nil, args \\ []) do
       children = [
         supervisor(ExSlackBot.Supervisor, [[SimpleSlackBot, ComplexSlackBot]]),
         worker(ExSlackBot.Router, [])
@@ -39,7 +42,7 @@ defmodule ExSlackBotTest do
   end
 
   test "can start router" do
-    {:ok, pid} = TestApplication.start(:normal, [])
+    {:ok, pid} = TestApplication.start
     Process.sleep 60000
     assert 1 + 1 == 2
   end
