@@ -1,6 +1,8 @@
 defmodule ExSlackBot.Router do
   @moduledoc ~s"""
+  `ExSlackBot.Router` is responsible for routing messages received from the Slack Real-Time Messaging API and routing them to a `GenServer` registered under a name that corresponds to the first segement of the command text--which is the text of the message, split on whitespace. 
 
+  The router will do a `GenServer.cast` to a server named whatever is first in the command text. The next space-separated segement of the command text is considered the callback name. A function should exist in the bot module with this name. Subsequent segments of the command text are considered "attributes". If they exist in the command text, their value is `true`. Otherwise, their value is what appears immediately after the `=` (no spaces around the `=`). e.g. `hello world attribute=value` will result in the router dispatching a call to the function `HelloSlackBot.world/2` and passing arguments `%{attribute: "value"}, state`. Where `state` is the initial state of the bot, returned by `init/1`, which is overridable.
   """
   require Logger
 
@@ -57,7 +59,7 @@ defmodule ExSlackBot.Router do
   end
 
   defp decode(%{type: "hello"}, _, slack_id) do
-    Logger.info "ExSlackBot connected as user #{slack_id}"
+    Logger.info "Connected to RTM API as bot user #{slack_id}"
   end
   defp decode(%{type: "reconnect_url"}, _, _) do
     # Ignore
@@ -77,8 +79,15 @@ defmodule ExSlackBot.Router do
     decode(%{type: type, text: msg.text, channel: channel}, socket, slack_id)
   end
 
-  defp decode(%{type: type, upload: true, file: %{preview: content, initial_comment: %{comment: text0}}, channel: channel}, socket, slack_id) do
-    send_cmd(text0, slack_id, type, channel, socket, content)
+  defp decode(%{type: type, upload: true, file: %{permalink_public: permalink, initial_comment: %{comment: text0}}, channel: channel} = msg, socket, slack_id) do
+    body = case HTTPoison.get! permalink do
+      %HTTPoison.Response{body: body, status_code: status} when status < 300 -> 
+        body
+      resp ->
+        Logger.error "#{inspect(resp, pretty: true)}" 
+        nil
+    end
+    send_cmd(text0, slack_id, type, channel, socket, body)
   end
 
   # Decode the message and send to the correct `GenServer` based on the first element of the text.
@@ -88,8 +97,10 @@ defmodule ExSlackBot.Router do
 
   defp send_cmd(text0, slack_id, type, channel, socket, file \\ nil) do
     case split_cmd_text(text0, channel, slack_id) do
-      [nil, []] -> :noop
-      [cmd | args] -> GenServer.cast(cmd, {slack_id, type, channel, socket, file, args})
+      nil -> :noop
+      {cmd, args} ->
+        # Logger.debug "GenServer.cast(#{inspect(cmd)} #{inspect({slack_id, type, channel, socket, file, args})})" 
+        GenServer.cast(cmd, {slack_id, type, channel, socket, file, args})
     end
   end
 
@@ -104,8 +115,8 @@ defmodule ExSlackBot.Router do
       end
     end
     case String.split(text) do
-      [cmd | args] -> [String.to_atom(cmd), args]
-      [] -> [nil, []]
+      [] -> nil
+      [cmd | args] -> {String.to_atom(cmd), args}
     end
   end
 

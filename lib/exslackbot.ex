@@ -46,13 +46,15 @@ defmodule ExSlackBot do
         end
         reply = try do
           # Logger.debug "apply(#{inspect(__MODULE__)}, #{inspect(cmd)}, [#{inspect(fn_args)}, #{inspect(state)}])"
-          :erlang.apply(__MODULE__, String.to_atom(List.first(cmd)), [fn_args, state])
+          :erlang.apply(__MODULE__, String.to_atom(cmd), [fn_args, state])
         rescue
-          err -> {:reply, %{
-            color: "danger",
-            pretext: "Failed to invoke Bot function `#{inspect(__MODULE__)}.#{cmd}(#{inspect(fn_args)}, #{inspect(state)})`",
-            text: "```#{inspect(err)}```"
-          }, state}
+          err ->
+            err_msg = Exception.format_stacktrace(System.stacktrace) 
+            {:reply, %{
+              color: "danger",
+              pretext: "Failed to invoke Bot function `#{inspect(__MODULE__)}.#{cmd}(#{inspect(fn_args)}, #{inspect(state)})`",
+              text: "```#{err_msg}```"
+            }, state}
         end
         handle_reply(channel, reply)
       end
