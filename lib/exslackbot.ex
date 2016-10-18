@@ -45,7 +45,7 @@ defmodule ExSlackBot do
           f -> Map.put(fn_args, :file, f)
         end
         reply = try do
-          Logger.debug "apply(#{inspect(__MODULE__)}, #{inspect(cmd)}, [#{inspect(fn_args)}, #{inspect(state)}])"
+          # Logger.debug "apply(#{inspect(__MODULE__)}, #{inspect(cmd)}, [#{inspect(fn_args)}, #{inspect(state)}])"
           :erlang.apply(__MODULE__, String.to_atom(List.first(cmd)), [fn_args, state])
         rescue
           err -> {:reply, %{
