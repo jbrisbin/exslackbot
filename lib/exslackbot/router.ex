@@ -73,14 +73,22 @@ defmodule ExSlackBot.Router do
   defp decode(%{type: "file_shared"}, _, _) do
     # Ignore
   end
+  defp decode(%{type: "file_change"}, _, _) do
+    # Ignore
+  end
+  defp decode(%{type: "file_public"}, _, _) do
+    # Ignore
+  end
 
   # Consider an edited message another, separate command.
   defp decode(%{type: type, subtype: "message_changed", message: msg, channel: channel}, socket, slack_id) do
     decode(%{type: type, text: msg.text, channel: channel}, socket, slack_id)
   end
 
-  defp decode(%{type: type, upload: true, file: %{permalink_public: permalink, initial_comment: %{comment: text0}}, channel: channel} = msg, socket, slack_id) do
-    body = case HTTPoison.get! permalink do
+  defp decode(%{type: type, upload: true, file: %{url_private: permalink, initial_comment: %{comment: text0}}, channel: channel} = msg, socket, slack_id) do
+    # Logger.debug "#{inspect(msg, pretty: true)}"
+    token = System.get_env "SLACK_TOKEN"
+    body = case HTTPoison.get! permalink, ["Authorization": "Bearer #{token}"], [follow_redirect: true] do
       %HTTPoison.Response{body: body, status_code: status} when status < 300 -> 
         body
       resp ->
