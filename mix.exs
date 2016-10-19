@@ -34,6 +34,7 @@ defmodule ExSlackBot.Mixfile do
     [
       {:websocket_client, "~> 1.1"},
       {:slackex, "~> 0.0.1"},
+      {:temp, "~> 0.4"},
       {:ex_spec, "~> 1.0.0", only: :test},
       {:excoveralls, "~> 0.4.3", only: :test},
       {:ex_doc, "~> 0.11", only: :dev}

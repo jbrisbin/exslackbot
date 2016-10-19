@@ -3,15 +3,9 @@ defmodule ExSlackBot do
   `ExSlackBot` provides a base upon which SlackBots can more easily be built. Each bot is addressable by a name and is supervised, so handles errors and restarts.
   """
 
-  defmacro __using__(name_or_opts \\ :name) do
-    opts = cond do
-      is_atom(name_or_opts) -> [name: name_or_opts]
-      is_list(name_or_opts) -> name_or_opts
-      true -> raise "argument must be atom (command name) or keyword list (opts)"
-    end
+  defmacro __using__(override_name \\ nil) do
     quote do
       require Logger
-
       use GenServer
 
       defp default_name do
@@ -20,7 +14,10 @@ defmodule ExSlackBot do
       end
 
       def name do
-        unquote(opts[:name]) || default_name
+        case unquote(override_name) do
+          nil -> default_name
+          n -> n
+        end
       end
 
       def start_link do
@@ -31,35 +28,37 @@ defmodule ExSlackBot do
         {:ok, %{}}
       end
 
-      def handle_cast({slack_id, _, channel, file, [cmd | args]}, state) do
-        fn_args = Map.new args, fn a ->
-          case String.split(a, "=") do
-            [flag] -> {String.to_atom(flag), true}
-            [k, "true"] -> {String.to_atom(k), true}
-            [k, "false"] -> {String.to_atom(k), false}
-            [k, v] -> {String.to_atom(k), v}
-          end 
-        end
-        fn_args = case file do
-          nil -> fn_args
-          f -> Map.put(fn_args, :file, f)
+      def handle_cast(%{id: slack_id, channel: ch, file: file, args: [cmd | args]}, state) do
+        attrs = args_to_attributes(args)
+        attrs = case file do
+          nil -> attrs
+          f -> Map.put(attrs, :file, f)
         end
         reply = try do
-          # Logger.debug "apply(#{inspect(__MODULE__)}, #{inspect(cmd)}, [#{inspect(fn_args)}, #{inspect(state)}])"
-          :erlang.apply(__MODULE__, String.to_atom(cmd), [fn_args, state])
+          Logger.debug "apply(#{inspect(__MODULE__)}, #{inspect(cmd)}, [#{inspect(attrs, pretty: true)}, #{inspect(state, pretty: true)}])"
+          :erlang.apply(__MODULE__, String.to_atom(cmd), [attrs, state])
         rescue
           err ->
             err_msg = Exception.format_stacktrace(System.stacktrace) 
             {:reply, %{
               color: "danger",
-              pretext: "Failed to invoke Bot function `#{inspect(__MODULE__)}.#{cmd}(#{inspect(fn_args)}, #{inspect(state)})`",
+              pretext: "Failed to invoke Bot function `#{inspect(__MODULE__)}.#{cmd}(#{inspect(attrs)}, #{inspect(state)})`",
               text: "```#{err_msg}```"
             }, state}
         end
-        handle_reply(channel, reply)
+        handle_reply(ch, reply)
       end
 
       defp handle_reply(_, {:noreply, state}) do        
+        {:noreply, state}
+      end
+
+      defp handle_reply(channel, {:reply, msg, state}) when is_binary(msg) do
+        %{ok: true} = Slackex.request("chat.postMessage", [
+          as_user: true,
+          channel: channel,
+          text: msg
+        ])
         {:noreply, state}
       end
 
@@ -84,20 +83,28 @@ defmodule ExSlackBot do
         {:noreply, state}
       end
 
-      defp handle_reply(channel, {:reply, msg, state}) when is_binary(msg) do
-        %{ok: true} = Slackex.request("chat.postMessage", [
-          as_user: true,
-          channel: channel,
-          text: msg
-        ])
-        {:noreply, state}
-      end
-
       defp handle_reply(_, msg) do
         raise "Invalid reply message: #{inspect(msg)}. Should be `{:noreply, state}` or `{:reply, msg, state}`"
       end
 
-      defoverridable Module.definitions_in __MODULE__
+      defp args_to_attributes(args) do
+        Map.new args, fn a ->
+          case String.split(a, "=") do
+            [flag] -> {String.to_atom(flag), true}
+            [k, "true"] -> {String.to_atom(k), true}
+            [k, "false"] -> {String.to_atom(k), false}
+            [k, v] -> {String.to_atom(k), v}
+          end 
+        end
+      end
+
+      defoverridable [
+        name: 0,
+        start_link: 0,
+        init: 1,
+        handle_cast: 2,
+        handle_reply: 2
+      ]
     end
   end
 

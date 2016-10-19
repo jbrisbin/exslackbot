@@ -48,7 +48,7 @@ defmodule ExSlackBot.TravisCIBot do
     Logger.info "Travis CI: Triggering build on repo #{repo}@#{branch}"
     Logger.debug "Travis CI: Sending JSON #{json}"
     # Invoke the REST API with a POST
-    case HTTPoison.post! url, json, [
+    {color, text} = case HTTPoison.post! url, json, [
       "Content-Type": "application/json",
       "Accept": "application/json",
       "Travis-API-Version": "3",
@@ -56,11 +56,12 @@ defmodule ExSlackBot.TravisCIBot do
     ] do
       %HTTPoison.Response{body: body, status_code: status} when status < 300 ->
         # Post to Slack indicating success
-        {:reply, %{summary: "Triggered #{repo}", color: "good", text: "```#{body}```"}, state}
+        {"good", "```#{body}```"}
       resp -> 
         # Post to Slack indicating failure
-        {:reply, %{summary: "Triggered #{repo}", color: "danger", text: "```#{inspect(resp, pretty: true)}```"}, state}
+        {"danger", "```#{inspect(resp, pretty: true)}```"}
     end
+    {:reply, %{summary: "Triggered #{repo}", color: color, text: text}, state}
   end
 
 end

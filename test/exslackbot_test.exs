@@ -6,14 +6,7 @@ defmodule ExSlackBotTest do
 
   defmodule SimpleSlackBot do
     use ExSlackBot
-
-    def hello(args \\ %{}, state) do
-      Logger.debug "hello: #{inspect(args)}"
-      case args do
-        %{file: content} -> {:reply, %{text: "Got file: ```#{content}```"}, state}
-        _ -> {:reply, "hello world", state} 
-      end      
-    end
+    import ExSlackBot.GitHubBot
   end
 
   defmodule ComplexSlackBot do

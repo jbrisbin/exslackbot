@@ -82,7 +82,7 @@ defmodule ExSlackBot.Router do
     decode(%{type: type, text: msg.text, channel: channel}, slack_id)
   end
 
-  defp decode(%{type: type, upload: true, file: %{url_private: permalink, initial_comment: %{comment: text0}}, channel: channel}, slack_id) do
+  defp decode(%{upload: true, file: %{url_private: permalink, initial_comment: %{comment: text0}} = msg, channel: channel}, slack_id) do
     # Logger.debug "#{inspect(msg, pretty: true)}"
     token = System.get_env "SLACK_TOKEN"
     body = case HTTPoison.get! permalink, ["Authorization": "Bearer #{token}"], [follow_redirect: true] do
@@ -92,20 +92,20 @@ defmodule ExSlackBot.Router do
         Logger.error "#{inspect(resp, pretty: true)}" 
         nil
     end
-    send_cmd(text0, slack_id, type, channel, body)
+    send_cmd(msg, text0, slack_id, channel, body)
   end
 
   # Decode the message and send to the correct `GenServer` based on the first element of the text.
-  defp decode(%{type: type, text: text0, channel: channel}, slack_id) do
-    send_cmd(text0, slack_id, type, channel)
+  defp decode(%{text: text0, channel: channel} = msg, slack_id) do
+    send_cmd(msg, text0, slack_id, channel)
   end
 
-  defp send_cmd(text0, slack_id, type, channel, file \\ nil) do
+  defp send_cmd(msg, text0, slack_id, channel, file \\ nil) do
     case split_cmd_text(text0, channel, slack_id) do
       nil -> :noop
       {cmd, args} ->
         # Logger.debug "GenServer.cast(#{inspect(cmd)} #{inspect({slack_id, type, channel, file, args})})" 
-        GenServer.cast(cmd, {slack_id, type, channel, file, args})
+        GenServer.cast(cmd, %{id: slack_id, msg: msg, channel: channel, file: file, args: args})
     end
   end
 
