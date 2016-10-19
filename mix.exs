@@ -27,12 +27,12 @@ defmodule ExSlackBot.Mixfile do
   end
 
   def application do
-    [applications: [:logger, :socket, :slackex]]
+    [applications: [:logger, :websocket_client, :slackex]]
   end
 
   defp deps do
     [
-      {:socket, github: "meh/elixir-socket"},
+      {:websocket_client, "~> 1.1"},
       {:slackex, "~> 0.0.1"},
       {:ex_spec, "~> 1.0.0", only: :test},
       {:excoveralls, "~> 0.4.3", only: :test},

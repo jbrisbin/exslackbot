@@ -6,86 +6,83 @@ defmodule ExSlackBot.Router do
   """
   require Logger
 
-  use GenServer
+  @behaviour :websocket_client
 
-  def start_link(args \\ []) do
-    GenServer.start_link(__MODULE__, args)
-  end
-
-  def init(_) do
+  def start_link do
     case Slackex.RTM.start do
       %{ok: true, url: url} = resp ->
-        # Parse the WebSocket URL out of the response 
-        case URI.parse(url) do
-          %URI{host: host, path: path} ->
-            # Connect to Slack RTM API over secure WebSocket
-            socket = Socket.Web.connect! host, path: path, secure: true
-
-            # Start a Task to read from the socket
-            {:ok, pid} = Task.start_link __MODULE__, :read, [socket, resp.self.id]
-            Process.monitor pid
-
-            # Starting args
-            {:ok, %{
-              slack_id: resp.self.id, 
-              #channels: resp.channels, 
-              socket: socket
-            }}
-          resp -> {:stop, resp}
-        end
-      resp -> {:stop, resp}
+        # Connect to Slack RTM API over secure WebSocket
+        :websocket_client.start_link(String.to_charlist(url), __MODULE__, [url, resp.self.id])
+      resp -> 
+        {:stop, resp}
     end  
   end
 
-  # Read data from the WebSocket connection and route according to the follow rules:
-  #
-  # 1: If it's text, parse the JSON and pass it on. 
-  # 2: If a `ping`, respond with a `pong`. 
-  # 3: Else, raise an error.
-  def read(socket, slack_id) do
-    case socket |> Socket.Web.recv! do
-      {:text, data} -> 
-        # Decode JSON with atoms and labels, pass it to ourselves via `gen_server:cast`
-        {:ok, json} = JSX.decode(data, [{:labels, :atom}])
-        # Logger.debug "message: #{inspect(json)}"
-        decode(json, socket, slack_id)
-      {:ping, _ } -> 
-        # Respond with a `pong` to keep the connection alive
-        socket |> Socket.Web.send!({:pong, ""})
-      err ->
-        raise "Error reading from #{inspect(socket)} #{inspect(err)}"
-    end  
-    read(socket, slack_id)
+  def init([url, slack_id]) do
+    {:once, %{url: url, slack_id: slack_id}}
   end
 
-  defp decode(%{type: "hello"}, _, slack_id) do
+  def onconnect(_req, state) do
+    {:ok, state}
+  end
+
+  def ondisconnect(reason, state) do
+    Logger.debug "disconnected: #{inspect(reason, pretty: true)}"
+    {:close, state}
+  end
+
+  def websocket_handle({:ping, ""}, _, state) do
+    {:ok, state}
+  end
+
+  def websocket_handle({:text, msg}, _, state) do
+    {:ok, json} = JSX.decode msg, [{:labels, :atom}]
+    Logger.debug "msg: #{inspect(json, pretty: true)}"
+    decode(json, state.slack_id)
+    {:ok, state}
+  end
+
+  def websocket_info(msg, _, state) do
+    Logger.debug "msg: #{inspect(msg, pretty: true)}"
+    {:ok, state}
+  end
+
+  def websocket_terminate(reason, _, _) do
+    Logger.debug "terminated: #{inspect(reason, pretty: true)}"
+    :ok
+  end
+
+  defp decode(%{type: "hello"}, slack_id) do
     Logger.info "Connected to RTM API as bot user #{slack_id}"
   end
-  defp decode(%{type: "reconnect_url"}, _, _) do
+  defp decode(%{type: "reconnect_url"}, _) do
     # Ignore
   end
-  defp decode(%{type: "presence_change"}, _, _) do
+  defp decode(%{type: "presence_change"}, _) do
     # Ignore
   end
-  defp decode(%{type: "user_typing"}, _, _) do
+  defp decode(%{type: "user_typing"}, _) do
     # Ignore
   end
-  defp decode(%{type: "file_shared"}, _, _) do
+  defp decode(%{type: "file_shared"}, _) do
     # Ignore
   end
-  defp decode(%{type: "file_change"}, _, _) do
+  defp decode(%{type: "file_change"}, _) do
     # Ignore
   end
-  defp decode(%{type: "file_public"}, _, _) do
+  defp decode(%{type: "file_public"}, _) do
     # Ignore
+  end
+  defp decode(%{user: user}, slack_id) when user == slack_id do
+    # Ignore messages sent from ourselves
   end
 
   # Consider an edited message another, separate command.
-  defp decode(%{type: type, subtype: "message_changed", message: msg, channel: channel}, socket, slack_id) do
-    decode(%{type: type, text: msg.text, channel: channel}, socket, slack_id)
+  defp decode(%{type: type, subtype: "message_changed", message: msg, channel: channel}, slack_id) do
+    decode(%{type: type, text: msg.text, channel: channel}, slack_id)
   end
 
-  defp decode(%{type: type, upload: true, file: %{url_private: permalink, initial_comment: %{comment: text0}}, channel: channel} = msg, socket, slack_id) do
+  defp decode(%{type: type, upload: true, file: %{url_private: permalink, initial_comment: %{comment: text0}}, channel: channel}, slack_id) do
     # Logger.debug "#{inspect(msg, pretty: true)}"
     token = System.get_env "SLACK_TOKEN"
     body = case HTTPoison.get! permalink, ["Authorization": "Bearer #{token}"], [follow_redirect: true] do
@@ -95,20 +92,20 @@ defmodule ExSlackBot.Router do
         Logger.error "#{inspect(resp, pretty: true)}" 
         nil
     end
-    send_cmd(text0, slack_id, type, channel, socket, body)
+    send_cmd(text0, slack_id, type, channel, body)
   end
 
   # Decode the message and send to the correct `GenServer` based on the first element of the text.
-  defp decode(%{type: type, text: text0, channel: channel}, socket, slack_id) do
-    send_cmd(text0, slack_id, type, channel, socket)
+  defp decode(%{type: type, text: text0, channel: channel}, slack_id) do
+    send_cmd(text0, slack_id, type, channel)
   end
 
-  defp send_cmd(text0, slack_id, type, channel, socket, file \\ nil) do
+  defp send_cmd(text0, slack_id, type, channel, file \\ nil) do
     case split_cmd_text(text0, channel, slack_id) do
       nil -> :noop
       {cmd, args} ->
-        # Logger.debug "GenServer.cast(#{inspect(cmd)} #{inspect({slack_id, type, channel, socket, file, args})})" 
-        GenServer.cast(cmd, {slack_id, type, channel, socket, file, args})
+        # Logger.debug "GenServer.cast(#{inspect(cmd)} #{inspect({slack_id, type, channel, file, args})})" 
+        GenServer.cast(cmd, {slack_id, type, channel, file, args})
     end
   end
 

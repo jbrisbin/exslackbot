@@ -31,7 +31,7 @@ defmodule ExSlackBot do
         {:ok, %{}}
       end
 
-      def handle_cast({slack_id, _, channel, socket, file, [cmd | args]}, state) do
+      def handle_cast({slack_id, _, channel, file, [cmd | args]}, state) do
         fn_args = Map.new args, fn a ->
           case String.split(a, "=") do
             [flag] -> {String.to_atom(flag), true}
@@ -66,6 +66,7 @@ defmodule ExSlackBot do
       defp handle_reply(channel, {:reply, msg, state}) when is_map(msg) do
         attachments = [
           %{
+            fallback: Map.get(msg, :summary, ""),
             pretext: Map.get(msg, :pretext, ""), 
             text: Map.get(msg, :text, ""),
             title: Map.get(msg, :title, ""),
