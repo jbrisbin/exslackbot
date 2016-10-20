@@ -4,6 +4,8 @@ Jon Brisbin <jon@jbrisbin.com>
 
 `ExSlackBot` is an Elixir library that helps make writing https://api.slack.com/bot-users[Slack Bots] easier. It provides a core set of behaviors you can build your bot on top of that doing low-level tasks like routing messages from the Slack Real-Time Messaging API to your bots (which are really Elixir http://elixir-lang.org/docs/stable/elixir/GenServer.html[GenServer] processes, so are supervised for error handling and restarts).
 
+* Github Project: https://github.com/jbrisbin/exslackbot[https://github.com/jbrisbin/exslackbot]
+
 == Building from Source
 
 TIP: This file is https://github.com/jbrisbin/asciibuild[asciibuild] enabled so all the code examples here can be executed by running `make site` in the `docs/` directory of this repo and opening the resulting `index-*.html` file in a browser.
