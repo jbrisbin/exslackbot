@@ -19,3 +19,4 @@ erl_crash.dump
 .DS_Store
 *.iml
 .idea/
+/docs/Dockerfile

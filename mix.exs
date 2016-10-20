@@ -27,9 +27,14 @@ defmodule ExSlackBot.Mixfile do
   end
 
   def application do
-    [
-      applications: [:logger, :websocket_client, :slackex]
-    ]
+    app = [applications: [:logger, :websocket_client, :slackex]]
+    cond do
+      Mix.env == :dev or Mix.env == :test ->
+        bots = Application.get_env(:exslackbot, :bots)
+        app ++ [mod: {ExSlackBot.Application, bots}]
+      true ->
+        app
+    end
   end
 
   defp deps do

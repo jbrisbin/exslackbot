@@ -1,11 +1,186 @@
-# ExSlackBot
+= ExSlackBot
 Jon Brisbin <jon@jbrisbin.com>
 0.1.0, 20 Oct, 2016: Initial revision
 
-`ExSlackBot` is an Elixir library for helping make writing https://api.slack.com/bot-users::[Slack Bots] easier.
+`ExSlackBot` is an Elixir library that helps make writing https://api.slack.com/bot-users[Slack Bots] easier. It provides a core set of behaviors you can build your bot on top of that doing low-level tasks like routing messages from the Slack Real-Time Messaging API to your bots (which are really Elixir http://elixir-lang.org/docs/stable/elixir/GenServer.html[GenServer] processes, so are supervised for error handling and restarts).
+
+== Building from Source
+
+TIP: This file is https://github.com/jbrisbin/asciibuild[asciibuild] enabled so all the code examples here can be executed by running `make site` in the `docs/` directory of this repo and opening the resulting `index-*.html` file in a browser.
+
+=== Base Docker Image
+
+`ExSlackBot` can be built with a Docker image in case you don't want to install Elixir and other utilities on your system globally. The following `Dockerfile` definition installs the latest Elixir into a Ubuntu-based container and prepares the environment for executing Elixir-based builds.
+
+.ExSlackBot Build Image
+[source,Dockerfile]
+[asciibuild,Dockerfile,image="exslackbot-build",run=true]
+----
+FROM ubuntu
+MAINTAINER {{author}} <{{email}}>
+
+# Set up environment
+ENV \
+  DEBIAN_FRONTEND=noninteractive \
+  DEBCONF_NONINTERACTIVE_SEEN=true \
+  SRC_DIR=/usr/src/exslackbot \
+  SLACK_TOKEN={{slack_token}}
+
+# Install curl and git for the build
+RUN apt-get install -y ca-certificates curl git
+# Install Elixir and erlang-dev
+RUN curl -O https://packages.erlang-solutions.com/erlang-solutions_1.0_all.deb && \
+  dpkg -i erlang-solutions_1.0_all.deb
+RUN apt-get update && \
+  apt-get install -y elixir erlang-dev
+
+# Set up UTF-8 locale since that's expected by mix
+RUN locale-gen en_US en_US.UTF-8
+ENV LANG=en_US.UTF-8
+
+# Clone the source repo
+RUN git clone https://github.com/jbrisbin/exslackbot.git $SRC_DIR
+WORKDIR $SRC_DIR
+
+# Install hex and rebar
+RUN \
+  mix local.hex --force && \
+  mix local.rebar --force && \
+  mix deps.get
+
+# Run mix to start the app
+CMD ["mix"]
+----
+
+=== Building ExSlackBot
+
+`ExSlackBot` is built and run with http://elixir-lang.org/getting-started/mix-otp/introduction-to-mix.html[mix]. Be sure to define the environment variable `SLACK_TOKEN` with value of a valid Slack API token for your bot user. 
+
+IMPORTANT: The value `SLACK_TOKEN` is built into the Docker image defined above for convenience. You won't want to do that in your own environment.
+
+.Build With mix
+[source,bash]
+----
+git clone https://github.com/jbrisbin/exslackbot.git
+cd exslackbot
+mix do deps.get, run
+----
+
+== Usage
+
+If using the above Docker container to build and run a default installation of `ExSlackBot`, you'll get a Hello World test bot you can send messages to to verify the system is up and running and the token is valid. Open a private message session with the bot user and send it a "hello world" message. You should see "Hello World!" come back from the bot as a reply. If not, check the console output of the app to see if there are any reported errors. Most errors should be reported back to the Slack channel the message came from but some internal errors will be logged to the console.
+
+.Sending The Bot a message
+----
+[img] My User  12:550 PM
+      @myslackbot hello world
+
+[img] My Slack Bot  BOT  12:55 PM
+      Hello World!
+----
+
+=== Writing your own Bots 
+
+The real power of `ExSlackBot` is in making it easy to write your own bots based on default behavior. `ExSlackBot` takes care of the message routing and recognizing mentions and direct messages to the bot and handles reading file uploads and passing the content.
+
+Here's some Elixir code that will create a "Hello World!" bot that simply replies to a message starting with the words "hello world" by sending a plain-text reply by returning a tuple of `{:reply, msg, state}` where message is either a binary string or a map containing entries for `:text`, `:pretext`, `:color`, `:title`, and/or `:summary`. 
+
+NOTE: Only the `:summary` key is translated to something else in the generated JSON that is sent to the https://api.slack.com/docs/message-attachments[Slack Attachment API]. It is set as the `:fallback` value.
+
+.Create a new Bot
+[source,elixir]
+----
+defmodule MySlackBot do
+  use ExSlackBot, :hello
+
+  def world(args, state) do
+    {:reply, "Hello World!", state}
+  end
+end
+----
+
+Messages sent to the bot should generally take the form of space-separated commands where the first two elements of the message are significant. The first segment denotes the bot name, which is either the module name minus "SlackBot" or "Bot", or the atom passed on the `use` line. In the above example, the default name, if it wasn't specified, would be `:my`; however, we've specified a name of `:hello`, so that's the name the `GenServer` will be registered under. It should be the first element of the message text.
+
+In general, commands should take the following form:
+
+----
+<bot_name> <fn_name> [attribute[=value]...]
+----
+
+If an attribute appears without a value, it is set to `true`. 
+
+==== Pattern Matching Args
+
+It's possible to pattern match on the incoming arguments of the message by leveraging the fact that `ExSlackBot` will parse your command text into a map. For example, to match on the command text `hello world override`, your bot could have the following function:
+
+[source,elixir]
+----
+defmodule MySlackBot do
+  use ExSlackBot, :hello
+
+  def world(%{override: true}, state) do
+    {:reply, "Hello There!", state}
+  end
+
+  def world(args, state) do
+    {:reply, "Hello World!", state}
+  end
+end
+----
+
+This is considered "overriden" because the attribute `override` appears in the command text. Because it has no value, is assumed to be `true`. To give it a specific value, add `=somevalue`. Then the bot could access a value like this:
+
+[source,elixir]
+----
+  def world(%{override: value}, state) do
+    {:reply, "Hello #{value}!", state}
+  end
+----
+
+==== Sending Back Attachment Replies
+
+It's possible to send back an attachment as the reply from a bot. Instead of including a binary text string as the `msg`, use a map.
+
+.Sending an Attachment
+[source,elixir]
+----
+  def world(%{override: value}, state) do
+    {:reply, %{title: "This is Hello", text: "Hello *#{value}*!"}, state}
+  end
+----
+
+If you want to change the color along the left side of the attachment, include a https://api.slack.com/docs/message-attachments#color[:color] in the map.
+
+.Marking a Message Good
+[source,elixir]
+----
+  def world(%{override: value}, state) do
+    {:reply, %{title: "This is Hello", text: "Hello *#{value}*!", color: "good"}, state}
+  end
+----
+
+
+== Cleanup
+
+Clean up the `Dockerfile` and containers that get created when this file is run with `asciibuild`. This step can be skipped by setting the attribute `skip_clean` when running `make site`. e.g. `ASCIIBUILD_OPTS="-a skip_clean" make site`
+
+ifndef::skip_clean[]
+.Cleanup
+[source,bash]
+[asciibuild,bash]
+----
+# Don't fail the build if cleanup doesn't happen
+set +e
+
+# Remove the Dockerfile we generate
+rm -Rf Dockerfile
+# Remove containers we started for tests
+docker rm -f $(docker ps -aqf label=asciibuild.name=ExSlackBot) || true
+----
+endif::[]
 
 ## License
 
 `ExSlackBot` is licensed under the Apache 2.0 OSS license:
 
-https://www.apache.org/licenses/LICENSE-2.0::[https://www.apache.org/licenses/LICENSE-2.0]
+https://www.apache.org/licenses/LICENSE-2.0[https://www.apache.org/licenses/LICENSE-2.0]
