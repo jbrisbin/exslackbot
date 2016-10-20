@@ -2,11 +2,14 @@ defmodule ExSlackBot do
   @moduledoc ~s"""
   `ExSlackBot` provides a base upon which SlackBots can more easily be built. Each bot is addressable by a name and is supervised, so handles errors and restarts.
   """
+  require Logger
 
   defmacro __using__(override_name \\ nil) do
     quote do
       require Logger
       use GenServer
+
+      @override_name unquote(override_name)
 
       defp default_name do
         elems = String.split(to_string(__MODULE__) |> String.downcase, ".")
@@ -14,29 +17,28 @@ defmodule ExSlackBot do
       end
 
       def name do
-        case unquote(override_name) do
+        case @override_name do
           nil -> default_name
           n -> n
         end
       end
 
       def start_link do
-        GenServer.start_link __MODULE__, [], name: name()
+        GenServer.start_link __MODULE__, [], name: name
       end
 
       def init([]) do
         {:ok, %{}}
       end
 
-      def handle_cast(%{id: slack_id, channel: ch, file: file, args: [cmd | args]}, state) do
+      def handle_cast(%{id: slack_id, channel: ch, file: file, args: [cmd | args]} = msg, state) do
         attrs = args_to_attributes(args)
         attrs = case file do
           nil -> attrs
           f -> Map.put(attrs, :file, f)
         end
         reply = try do
-          Logger.debug "apply(#{inspect(__MODULE__)}, #{inspect(cmd)}, [#{inspect(attrs, pretty: true)}, #{inspect(state, pretty: true)}])"
-          :erlang.apply(__MODULE__, String.to_atom(cmd), [attrs, state])
+          call(cmd, msg, attrs, state)
         rescue
           err ->
             err_msg = Exception.format_stacktrace(System.stacktrace) 
@@ -47,6 +49,11 @@ defmodule ExSlackBot do
             }, state}
         end
         handle_reply(ch, reply)
+      end
+
+      defp call(cmd, msg, attrs, state) do
+        # Logger.debug "apply(#{inspect(__MODULE__)}, #{inspect(cmd)}, [#{inspect(attrs, pretty: true)}, #{inspect(state, pretty: true)}])"
+        :erlang.apply(__MODULE__, String.to_atom(cmd), [attrs, state])
       end
 
       defp handle_reply(_, {:noreply, state}) do        
@@ -103,7 +110,8 @@ defmodule ExSlackBot do
         start_link: 0,
         init: 1,
         handle_cast: 2,
-        handle_reply: 2
+        handle_reply: 2,
+        call: 4
       ]
     end
   end

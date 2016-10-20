@@ -27,7 +27,9 @@ defmodule ExSlackBot.Mixfile do
   end
 
   def application do
-    [applications: [:logger, :websocket_client, :slackex]]
+    [
+      applications: [:logger, :websocket_client, :slackex]
+    ]
   end
 
   defp deps do

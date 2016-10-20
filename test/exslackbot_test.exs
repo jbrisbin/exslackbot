@@ -5,8 +5,12 @@ defmodule ExSlackBotTest do
   doctest ExSlackBot
 
   defmodule SimpleSlackBot do
-    use ExSlackBot
-    import ExSlackBot.GitHubBot
+    use ExSlackBot.GitHubRepoBot
+    
+    def hello(msg, %{workdir: wrkdir} = state) do
+      {stdout, 0} = System.cmd "ls", ["-la"], [cd: wrkdir]
+      {:reply, "```#{stdout}```", state}
+    end
   end
 
   defmodule ComplexSlackBot do
@@ -21,21 +25,10 @@ defmodule ExSlackBotTest do
     end
   end
 
-  defmodule TestApplication do
-    use Application
-    import Supervisor.Spec, warn: false
-
-    def start(type \\ nil, args \\ []) do
-      children = [
-        supervisor(ExSlackBot.Supervisor, [[SimpleSlackBot, ComplexSlackBot]]),
-        worker(ExSlackBot.Router, [])
-      ]
-      Supervisor.start_link(children, strategy: :one_for_one)
-    end
-  end
-
-  test "can start router" do
-    {:ok, pid} = TestApplication.start
+  test "can start bots" do
+    bots = Application.get_env(:exslackbot, :bots)
+    Logger.debug "bots: #{inspect(bots, pretty: true)}"
+    {:ok, pid} = ExSlackBot.Application.start :normal, bots
     Process.sleep 60000
     assert 1 + 1 == 2
   end

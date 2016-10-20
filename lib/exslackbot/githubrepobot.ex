@@ -3,30 +3,37 @@ defmodule ExSlackBot.GitHubRepoBot do
   `GitHubRepoBot` is an Elixir behavior that makes working with GitHub repositories easier. You can assign a repo to the bot by passing `repo: "org/repo"` and optionally `branch: "branch_or_tag"` to the options when declaring the behavior in the `use` statement.
   """
 
-  defmacro __using__(opts \\ nil) do
+  defmacro __using__(opts \\ []) do
+    name = case opts do
+      [name: n] when n != nil -> n
+      _ -> nil
+    end
     quote do
       require Logger
-      use ExSlackBot, unquote(opts[:name])
+      use ExSlackBot, unquote(name)
 
       def init([]) do
+        config = Application.get_env(:exslackbot, name)
+
         Temp.track!
         workdir = Temp.mkdir!
         state = %{workdir: workdir}
-        cloned = cond do
-          unquote(opts[:repo]) != nil ->
-            repo = unquote(opts[:repo])
-            {:ok, _, _} = git(["clone", "https://github.com/#{repo}.git", workdir], state)
-            if unquote(opts[:branch_or_tag]) != nil do
-              {:ok, _, _} = git(["checkout", unquote(opts[:branch_or_tag])], state)
+
+        cloned = case config[:repo] do
+          nil -> 
+            false
+          r ->
+            {:ok, _, _} = git(["clone", "https://github.com/#{r}.git", workdir], state)
+            if config[:branch] != nil do
+              {:ok, _, _} = git(["checkout", config[:branch]], state)
             end
             true
-          true -> 
-            false
-        end        
+        end
+
         {:ok, %{workdir: workdir, cloned: cloned}}
       end
 
-      def handle_cast(%{channel: ch} = msg, %{cloned: true} = state) do
+      def handle_cast(msg, %{cloned: true} = state) do
         {:ok, _, _} = git(["pull"], state)
         super(msg, state)
       end
@@ -55,6 +62,11 @@ defmodule ExSlackBot.GitHubRepoBot do
           {:noreply, _} -> {:noreply, %{state0 | workdir: workdir0}}
           {:reply, msg, _} -> {:reply, msg, %{state0 | workdir: workdir0}}
         end
+      end
+
+      def terminate(_, state) do
+        Temp.cleanup
+        :normal
       end
 
       # Perform git operations by using the CLI
