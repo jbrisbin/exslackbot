@@ -1,0 +1,11 @@
+# ExSlackBot
+Jon Brisbin <jon@jbrisbin.com>
+0.1.0, 20 Oct, 2016: Initial revision
+
+`ExSlackBot` is an Elixir library for helping make writing https://api.slack.com/bot-users::[Slack Bots] easier.
+
+## License
+
+`ExSlackBot` is licensed under the Apache 2.0 OSS license:
+
+https://www.apache.org/licenses/LICENSE-2.0::[https://www.apache.org/licenses/LICENSE-2.0]
